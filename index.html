@@ -86,7 +86,7 @@ function chargingMetric(at){return chargingOptions(at).map(x=>x.charger+' '+x.di
 
 const scenes=[];
 const mainAngle=turnAngle('A','N1');
-scenes.push({name:'现场全景',steps:[still('A','线路总览','',{battery:90,metric:'一线一机',highlight:'all'}),still('A','连续索道','',{battery:90,metric:'A → N1 → N2 → N3 → N4 → C2',highlight:'all'}),still('A','充电节点','',{battery:90,metric:'C1 / C2 / C3'}),still('A','设备就绪','',{battery:90,metric:'GS-001'})]});
+scenes.push({name:'现场全景',steps:[still('A','线路总览','',{duration:5,battery:90,metric:'一线一机'}),still('A','沿线节点','',{duration:7,battery:90,metric:'N1 → N2 → N3 → N4 → C2'}),still('A','充电节点','',{duration:6,battery:90,metric:'C1 / C3 / C2'}),still('A','设备就绪','',{duration:4,battery:90,metric:'GS-001'})]});
 const walk=['A','N1','N2','N3','N4','E4','N4','N3','N2','N1','A'];
 const daily=[];const done=[];let travelled=0;
 daily.push(still('A','启动往返巡检','',{battery:90,metric:'总里程 420 m',done:[],state:'待执行'}));
@@ -126,7 +126,24 @@ function draw(q){const s=current();let w=s.kind==='move'?interpPath(s.route,q):n
  const note=s.kind==='dwell'?'停留检测 '+Math.floor(120*q)+' / 120 秒':s.kind==='turn'?'机器人停车 · 转盘转向':s.charge?'正在充电':null;callout.setAttribute('visibility',note?'visible':'hidden');if(note){callout.setAttribute('transform',`translate(${p.x-100} ${p.y+78})`);calloutText.textContent=note}
  $('position').textContent=s.kind==='move'?s.position+' · '+Math.round(q*100)+'%':s.position;$('seek').value=Math.round((state.index+q)/scenes[state.scene].steps.length*1000);$('counter').textContent=`步骤 ${state.index+1} / ${scenes[state.scene].steps.length}`;
  if(state.zoom){const z=s.turn?turnGroups[s.turn].p:p;svg.setAttribute('viewBox',`${z.x-285} ${z.y-210} 570 420`)}else svg.setAttribute('viewBox','0 0 1320 780');
+ drawOverview(q);
 }
+
+const overviewFX=el('g',{'pointer-events':'none','data-overview-stage':'idle'},svg);
+function drawOverview(q){
+ overviewFX.replaceChildren();const enabled=state.scene===0,stage=state.index;
+ overviewFX.setAttribute('data-overview-stage',enabled?['line','nodes','chargers','ready'][stage]:'idle');
+ const emphasis=enabled?(stage===0?Math.min(1,q*4):stage===3?1-q:1):0;
+ ground.setAttribute('opacity',1-emphasis*.52);facilities.setAttribute('opacity',1-emphasis*.48);supports.setAttribute('opacity',1-emphasis*.2);
+ if(!enabled)return;
+ const ring=(id,color,progress,active=true)=>{const n=nodes[id],p=P(n.x,n.y),pulse=active?Math.sin(q*Math.PI*6)*5:0;el('ellipse',{cx:p.x,cy:p.y,rx:31+progress*12+pulse,ry:18+progress*7+pulse*.5,fill:color,'fill-opacity':.12,stroke:color,'stroke-width':3,opacity:Math.min(1,progress*4)},overviewFX);if(active)el('ellipse',{cx:p.x,cy:p.y,rx:48+q% .25*80,ry:27+q% .25*40,fill:'none',stroke:color,'stroke-width':2,opacity:.45},overviewFX)};
+ const trace=(id,f,color='#d58135')=>{if(f<=0)return;const ps=worldEdgePaths[id],lens=ps.slice(1).map((n,i)=>Math.hypot(n.x-ps[i].x,n.y-ps[i].y)),total=lens.reduce((a,b)=>a+b,0),part=[ps[0]];let remaining=Math.min(1,f)*total;for(let i=0;i<lens.length;i++){if(remaining<lens[i]){const t=remaining/lens[i];part.push({x:ps[i].x+(ps[i+1].x-ps[i].x)*t,y:ps[i].y+(ps[i+1].y-ps[i].y)*t});break}part.push(ps[i+1]);remaining-=lens[i]}path(part.map(n=>P(n.x,n.y)),{stroke:color,'stroke-width':7,'stroke-linecap':'round','stroke-linejoin':'round'},overviewFX);const tip=P(part.at(-1).x,part.at(-1).y);if(f<1)el('circle',{cx:tip.x,cy:tip.y,r:8,fill:'#fff4dc',stroke:color,'stroke-width':3},overviewFX)};
+ if(stage===0){for(const[id]of edges)trace(id,q);ring('A','#d58135',q,false)}
+ if(stage===1){const ids=['N1','N2','N3','N4','E4'];const k=Math.min(ids.length-.001,q*ids.length);ids.forEach((id,i)=>{const f=Math.max(0,Math.min(1,k-i));if(f>0)ring(id,'#d58135',f,Math.floor(k)===i)});for(const[id]of edges)trace(id,q);}
+ if(stage===2){const ids=['A','N2','E4'],k=Math.min(ids.length-.001,q*ids.length);ids.forEach((id,i)=>{const f=Math.max(0,Math.min(1,k-i));if(f<=0)return;const n=nodes[id],p=P(n.x,n.y);ring(id,'#2b987b',f,Math.floor(k)===i);el('rect',{x:p.x-43,y:p.y+8,width:69,height:110,rx:9,fill:'#56b693','fill-opacity':.13,stroke:'#2b987b','stroke-width':3,opacity:f},overviewFX);});}
+ if(stage===3&&q<1){for(const[id]of edges)trace(id,1,'#36826c');overviewFX.setAttribute('opacity',1-q);ring('A','#36826c',1-q,false)}else overviewFX.setAttribute('opacity',1);
+}
+
 function renderPanel(){const scene=scenes[state.scene],s=current();$('eyebrow').textContent=String(state.scene+1).padStart(2,'0')+' / 04 · '+scene.name;$('stepTitle').textContent=s.title;$('taskState').textContent=s.state||(state.scene===0?'待机':'待执行');$('metricLabel').textContent=s.coverageStart!==undefined?'双向检测进度':s.kind==='dwell'?'停留计时':'当前环节';$('steps').replaceChildren();scene.steps.forEach((step,i)=>{const li=document.createElement('li'),b=document.createElement('button');b.type='button';b.className=i===state.index?'current':i<state.index?'past':'';const a=document.createElement('span');a.className='number';a.textContent=String(i+1).padStart(2,'0');const t=document.createElement('span');t.textContent=step.title;b.append(a,t);b.addEventListener('click',()=>load(i,false,1));li.append(b);$('steps').append(li)});$('prev').disabled=state.index===0;$('next').disabled=state.index===scene.steps.length-1&&state.q===1;$('announcement').textContent=s.title;updatePlay()}
 function updatePlay(){$('play').firstElementChild.textContent=state.playing?'暂停':state.q===1&&state.index===scenes[state.scene].steps.length-1?'重新播放':'播放'}
 function load(i,playing=false,q=0){state.index=Math.max(0,Math.min(scenes[state.scene].steps.length-1,i));state.q=q;state.playing=playing;state.last=0;renderPanel();draw(q)}
@@ -221,7 +238,7 @@ const distance={[at]:0},queue=[[0,at]];while(queue.length){queue.sort((a,b)=>a[0
 function chargingMetric(at){return chargingOptions(at).map(x=>x.charger+' '+x.distance+' m').join(' / ')}
 
 const scenes=[];
-scenes.push({name:'现场全景',caption:'从整条线路开始',steps:[still('A','线路总览','相连的主干、两个转盘和五个分支末端，整体作为一条线路，关联一台机器人。',{metric:'一线一机',battery:90,highlight:'all'}),still('A','分支结构','机器人在末端直接反向行驶。通过转盘进入其他分支，不需要改变线路关联。',{metric:'5 个分支末端',highlight:'all',battery:90}),still('A','充电节点','本例设置 C1、C2 三个充电点；实际选择由现场系统结合配置策略与可达条件处理。',{metric:'C1 / C2 / C3',battery:90}),still('A','设备就绪','点击上方场景依次讲解全分支巡检、转盘通行、中途回充和临时停留检测。',{metric:'GS-001',battery:90})]});
+scenes.push({name:'现场全景',steps:[still('A','线路总览','',{duration:5,battery:90,metric:'一线一机'}),still('A','分支与转盘','',{duration:7,battery:90,metric:'2 个转盘 · 5 个分支末端'}),still('A','充电节点','',{duration:6,battery:90,metric:'C1 / C3 / C2'}),still('A','设备就绪','',{duration:4,battery:90,metric:'GS-001'})]});
 const walk=['A','J1','N1','E1','N1','J1','N2','E2','N2','J1','J2','E3','J2','E4','J2','E5','J2','J1','A'];const daily=[];let travelled=0;const done=[];
 daily.push(still('A','启动全线路巡检','示例从 C1 出发，覆盖全部分支；去程与回程都检测。这里只展示一种有效遍历顺序。',{metric:'总里程 810 m',battery:90,done:[]}));
 for(let i=0;i<walk.length-1;i++){const a=walk[i],b=walk[i+1],edge=edgeBetween(a,b);if(i&&nodes[a].kind==='turn'){daily.push(rot(a,turnAngle(walk[i-1],a),turnAngle(a,b),a+' 转盘转向','现场系统确认机器人停稳后控制转盘，出口对齐才放行。',{battery:Math.round(90-travelled/35),done:[...done],metric:'停车 → 转向 → 放行',state:'道岔协同中'}))}else if(i&&nodes[a].kind==='end'){daily.push(still(a,'末端折返','不需要掉头设备。回程继续检测，再进入尚未完成的分支。',{duration:1.8,battery:Math.round(90-travelled/35),done:[...done],metric:'回程同样检测',state:'巡检中'}))}
@@ -253,7 +270,24 @@ function draw(q){const s=current();let w=s.kind==='move'?interpPath(s.route,q):n
  const note=s.kind==='dwell'?'停留检测 '+Math.floor(120*q)+' / 120 秒':s.kind==='turn'?'机器人停车 · 转盘转向':s.charge?'正在充电':null;callout.setAttribute('visibility',note?'visible':'hidden');if(note){callout.setAttribute('transform',`translate(${p.x-100} ${p.y+78})`);calloutText.textContent=note}
  $('position').textContent=s.kind==='move'?s.position+' · '+Math.round(q*100)+'%':s.position;$('seek').value=Math.round((state.index+q)/scenes[state.scene].steps.length*1000);$('counter').textContent=`步骤 ${state.index+1} / ${scenes[state.scene].steps.length}`;
  if(state.zoom){const z=s.turn?turnGroups[s.turn].p:p;svg.setAttribute('viewBox',`${z.x-285} ${z.y-210} 570 420`)}else svg.setAttribute('viewBox','0 0 1320 780');
+ drawOverview(q);
 }
+
+const overviewFX=el('g',{'pointer-events':'none','data-overview-stage':'idle'},svg);
+function drawOverview(q){
+ overviewFX.replaceChildren();const enabled=state.scene===0,stage=state.index;
+ overviewFX.setAttribute('data-overview-stage',enabled?['line','nodes','chargers','ready'][stage]:'idle');
+ const emphasis=enabled?(stage===0?Math.min(1,q*4):stage===3?1-q:1):0;
+ ground.setAttribute('opacity',1-emphasis*.52);facilities.setAttribute('opacity',1-emphasis*.48);supports.setAttribute('opacity',1-emphasis*.2);
+ if(!enabled)return;
+ const ring=(id,color,progress,active=true)=>{const n=nodes[id],p=P(n.x,n.y),pulse=active?Math.sin(q*Math.PI*6)*5:0;el('ellipse',{cx:p.x,cy:p.y,rx:31+progress*12+pulse,ry:18+progress*7+pulse*.5,fill:color,'fill-opacity':.12,stroke:color,'stroke-width':3,opacity:Math.min(1,progress*4)},overviewFX);if(active)el('ellipse',{cx:p.x,cy:p.y,rx:48+q% .25*80,ry:27+q% .25*40,fill:'none',stroke:color,'stroke-width':2,opacity:.45},overviewFX)};
+ const trace=(id,f,color='#d58135')=>{if(f<=0)return;const ps=worldEdgePaths[id],lens=ps.slice(1).map((n,i)=>Math.hypot(n.x-ps[i].x,n.y-ps[i].y)),total=lens.reduce((a,b)=>a+b,0),part=[ps[0]];let remaining=Math.min(1,f)*total;for(let i=0;i<lens.length;i++){if(remaining<lens[i]){const t=remaining/lens[i];part.push({x:ps[i].x+(ps[i+1].x-ps[i].x)*t,y:ps[i].y+(ps[i+1].y-ps[i].y)*t});break}part.push(ps[i+1]);remaining-=lens[i]}path(part.map(n=>P(n.x,n.y)),{stroke:color,'stroke-width':7,'stroke-linecap':'round','stroke-linejoin':'round'},overviewFX);const tip=P(part.at(-1).x,part.at(-1).y);if(f<1)el('circle',{cx:tip.x,cy:tip.y,r:8,fill:'#fff4dc',stroke:color,'stroke-width':3},overviewFX)};
+ if(stage===0){for(const[id]of edges)trace(id,q);ring('A','#d58135',q,false)}
+ if(stage===1){const ids=['J1','J2','E1','E2','E3','E4','E5'];const k=Math.min(ids.length-.001,q*ids.length);ids.forEach((id,i)=>{const f=Math.max(0,Math.min(1,k-i));if(f>0)ring(id,'#d58135',f,Math.floor(k)===i)});for(const[id]of edges)trace(id,q);}
+ if(stage===2){const ids=['A','N2','E4'],k=Math.min(ids.length-.001,q*ids.length);ids.forEach((id,i)=>{const f=Math.max(0,Math.min(1,k-i));if(f<=0)return;const n=nodes[id],p=P(n.x,n.y);ring(id,'#2b987b',f,Math.floor(k)===i);el('rect',{x:p.x-43,y:p.y+8,width:69,height:110,rx:9,fill:'#56b693','fill-opacity':.13,stroke:'#2b987b','stroke-width':3,opacity:f},overviewFX);});}
+ if(stage===3&&q<1){for(const[id]of edges)trace(id,1,'#36826c');overviewFX.setAttribute('opacity',1-q);ring('A','#36826c',1-q,false)}else overviewFX.setAttribute('opacity',1);
+}
+
 function renderPanel(){const scene=scenes[state.scene],s=current();$('eyebrow').textContent=String(state.scene+1).padStart(2,'0')+' / 05 · '+scene.name;$('stepTitle').textContent=s.title;$('taskState').textContent=s.state||(state.scene===0?'待机':'待执行');$('metricLabel').textContent=s.coverageStart!==undefined?'双向检测进度':s.kind==='dwell'?'停留计时':'当前环节';$('steps').replaceChildren();scene.steps.forEach((step,i)=>{const li=document.createElement('li'),b=document.createElement('button');b.type='button';b.className=i===state.index?'current':i<state.index?'past':'';const a=document.createElement('span');a.className='number';a.textContent=String(i+1).padStart(2,'0');const t=document.createElement('span');t.textContent=step.title;b.append(a,t);b.addEventListener('click',()=>load(i,false,1));li.append(b);$('steps').append(li)});$('prev').disabled=state.index===0;$('next').disabled=state.index===scene.steps.length-1&&state.q===1;$('announcement').textContent=s.title;updatePlay()}
 function updatePlay(){$('play').firstElementChild.textContent=state.playing?'暂停':state.q===1&&state.index===scenes[state.scene].steps.length-1?'重新播放':'播放'}
 function load(i,playing=false,q=0){state.index=Math.max(0,Math.min(scenes[state.scene].steps.length-1,i));state.q=q;state.playing=playing;state.last=0;renderPanel();draw(q)}
